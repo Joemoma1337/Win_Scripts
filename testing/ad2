@@ -3,8 +3,9 @@ $firstNames = @("Ashley","Barbara","Charles","David","Elizabeth","Felix","George
 $lastNames = @("Anderson","Brown","Clark","Dixon","Easmon","Flores","Garcia","Hernandez","Lee","Johnson","King","Lopez","Miller","Nguyen","Ortiz","Perez","Qin","Rodriguez","Smith ","Thomas","Ulrich","Vaughn","Williams","Xenos","Young","Zager")
 
 $combinedNames = @()
+$maxCombinations = $firstNames.Count * $lastNames.Count
 
-while ($combinedNames.Count -lt ($firstNames.Count * $lastNames.Count)) {
+while ($combinedNames.Count -lt $maxCombinations) {
     # Generate a random index for the first and last name arrays
     $randomFirstNameIndex = Get-Random -Minimum 0 -Maximum ($firstNames.Count-1)
     $randomLastNameIndex = Get-Random -Minimum 0 -Maximum ($lastNames.Count-1)
