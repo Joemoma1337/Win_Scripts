@@ -1,2 +1,8 @@
-#query user /server:<hostname> | Select-String -Pattern "USERNAME|disc"
-query user /server:computer1 | Select-String -Pattern "USERNAME|disc"
+param (
+	[string[]]$Hostname
+)
+foreach ($i in $Hostname) {
+	Write-Output $i
+	query user /server:$i | Select-String -Pattern "USERNAME|disc"
+	Write-Output ""
+}
