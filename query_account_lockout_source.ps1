@@ -1,3 +1,4 @@
+#https://thesysadminchannel.com/get-account-lock-out-source-powershell/
 #requires -Module ActiveDirectory
  
 Function Get-AccountLockoutStatus {
