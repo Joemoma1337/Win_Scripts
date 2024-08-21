@@ -1,0 +1,1 @@
+Get-ADComputer -Filter {(OperatingSystem -Notlike "*windows*server*") -and (Enabled -eq "True")} -Properties OperatingSystem, OperatingSystemVersion | sort OperatingSystem | ft DNSHostName, OperatingSystem, OperatingSystemVersion |Out-File -FilePath c:\temp\all_non_server_endpoints.csv
