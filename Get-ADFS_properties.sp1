@@ -1,0 +1,8 @@
+Start-Transcript -Path C:\Temp\Current-ADFS-Rules.txt #Update path as desired
+$formatenumerationlimit =-1
+Get-AdfsClaimsProviderTrust | fl Accept*
+Get-AdfsAdditionalAuthenticationRule
+Get-AdfsRelyingPartyTrust "Microsoft Office 365 Identity Platform" | fl
+Get-ADFSAccessControlPolicy | fl
+Get-ADFSProperties | FL
+Stop-Transcript
