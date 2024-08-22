@@ -4,7 +4,7 @@ $groupName = "Domain Users"
 # Step 2: Query the group to get its members
 $membersList = Get-ADGroupMember -Identity $groupName | Select-Object -ExpandProperty SamAccountName #comment for targeted
 #$membersList = @("test1", "Administrator") #uncomment for targeted by SamAccountName
-#$membersList = @("Test One", "Administrator") #uncomment for targeted by Name
+#$membersList = Get-Content -Path "C:\path\to\your\file.txt" # Reads SamAccountNames from the .txt file
 
 # Output the list of members (for debugging purposes)
 #Write-Host "Members of ${groupName}:"
