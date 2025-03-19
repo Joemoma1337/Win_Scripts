@@ -17,9 +17,13 @@ if ($user) {
     $newDescription = "$($user.Description) | $descriptionText"
     $newEmployeeID = "term_$($user.EmployeeID)"  # Prepend "term_" to EmployeeID
 
-    # Move the user first (now correctly handling the CN=Users container)
+    # Move the user first
     Write-Host "Moving user '$($user.SamAccountName)' to '$targetOU'..." -ForegroundColor Yellow
     Move-ADObject -Identity $user.DistinguishedName -TargetPath $targetOU
+
+    # Re-fetch the updated user DN after the move
+    Start-Sleep -Seconds 2  # Small delay to allow AD replication
+    $user = Get-ADUser -Filter {SamAccountName -eq $samAccountName} -Properties DistinguishedName
 
     # Rename CN (Common Name)
     Write-Host "Renaming CN to '$newSAM'..." -ForegroundColor Yellow
@@ -27,22 +31,16 @@ if ($user) {
 
     # Update attributes
     Write-Host "Updating display name to '$newDisplayName'..." -ForegroundColor Yellow
-    Set-ADUser -Identity $user.SamAccountName -DisplayName $newDisplayName
+    Set-ADUser -Identity $newSAM -DisplayName $newDisplayName
 
     Write-Host "Updating UPN to '$newUPN'..." -ForegroundColor Yellow
-    Set-ADUser -Identity $user.SamAccountName -UserPrincipalName $newUPN
+    Set-ADUser -Identity $newSAM -UserPrincipalName $newUPN
 
     Write-Host "Updating description to include '$descriptionText'..." -ForegroundColor Yellow
-    Set-ADUser -Identity $user.SamAccountName -Description $newDescription
+    Set-ADUser -Identity $newSAM -Description $newDescription
 
     Write-Host "Updating EmployeeID to '$newEmployeeID'..." -ForegroundColor Yellow
-    Set-ADUser -Identity $user.SamAccountName -EmployeeID $newEmployeeID
+    Set-ADUser -Identity $newSAM -EmployeeID $newEmployeeID
 
     # Update sAMAccountName properly
-    Write-Host "Updating SAM account name to '$newSAM'..." -ForegroundColor Yellow
-    Set-ADUser -Identity $user.SamAccountName -SamAccountName $newSAM
-
-    Write-Host "User '$($user.SamAccountName)' successfully updated and moved." -ForegroundColor Green
-} else {
-    Write-Host "User with SAM Account Name '$samAccountName' not found in AD." -ForegroundColor Red
-}
+    Wr
