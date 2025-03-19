@@ -43,4 +43,10 @@ if ($user) {
     Set-ADUser -Identity $newSAM -EmployeeID $newEmployeeID
 
     # Update sAMAccountName properly
-    Wr
+    Write-Host "Updating SAM account name to '$newSAM'..." -ForegroundColor Yellow
+    Set-ADUser -Identity $newSAM -SamAccountName $newSAM
+
+    Write-Host "User '$newSAM' successfully updated and moved." -ForegroundColor Green
+} else {
+    Write-Host "User with SAM Account Name '$samAccountName' not found in AD." -ForegroundColor Red
+}
