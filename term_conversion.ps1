@@ -22,29 +22,37 @@ if ($user) {
     Move-ADObject -Identity $user.DistinguishedName -TargetPath $targetOU
 
     # Re-fetch the updated user DN after the move
-    Start-Sleep -Seconds 2  # Small delay to allow AD replication
+    Start-Sleep -Seconds 2  # Allow AD replication
     $user = Get-ADUser -Filter {SamAccountName -eq $samAccountName} -Properties DistinguishedName
 
     # Rename CN (Common Name)
     Write-Host "Renaming CN to '$newSAM'..." -ForegroundColor Yellow
     Rename-ADObject -Identity $user.DistinguishedName -NewName $newSAM
 
-    # Update attributes
+    # Re-fetch the user again after rename
+    Start-Sleep -Seconds 2  # Allow AD replication
+    $user = Get-ADUser -Filter {SamAccountName -eq $samAccountName} -Properties SamAccountName, DistinguishedName
+
+    # Update sAMAccountName first, then fetch user again
+    Write-Host "Updating SAM account name to '$newSAM'..." -ForegroundColor Yellow
+    Set-ADUser -Identity $user.DistinguishedName -SamAccountName $newSAM
+
+    # Final retrieval to ensure accurate identity
+    Start-Sleep -Seconds 2  # Allow AD replication
+    $user = Get-ADUser -Filter {SamAccountName -eq $newSAM} -Properties DistinguishedName
+
+    # Update remaining attributes using the latest DN
     Write-Host "Updating display name to '$newDisplayName'..." -ForegroundColor Yellow
-    Set-ADUser -Identity $newSAM -DisplayName $newDisplayName
+    Set-ADUser -Identity $user.DistinguishedName -DisplayName $newDisplayName
 
     Write-Host "Updating UPN to '$newUPN'..." -ForegroundColor Yellow
-    Set-ADUser -Identity $newSAM -UserPrincipalName $newUPN
+    Set-ADUser -Identity $user.DistinguishedName -UserPrincipalName $newUPN
 
     Write-Host "Updating description to include '$descriptionText'..." -ForegroundColor Yellow
-    Set-ADUser -Identity $newSAM -Description $newDescription
+    Set-ADUser -Identity $user.DistinguishedName -Description $newDescription
 
     Write-Host "Updating EmployeeID to '$newEmployeeID'..." -ForegroundColor Yellow
-    Set-ADUser -Identity $newSAM -EmployeeID $newEmployeeID
-
-    # Update sAMAccountName properly
-    Write-Host "Updating SAM account name to '$newSAM'..." -ForegroundColor Yellow
-    Set-ADUser -Identity $newSAM -SamAccountName $newSAM
+    Set-ADUser -Identity $user.DistinguishedName -EmployeeID $newEmployeeID
 
     Write-Host "User '$newSAM' successfully updated and moved." -ForegroundColor Green
 } else {
