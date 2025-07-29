@@ -1,0 +1,117 @@
+Get list of Servers1
+```
+# Requires the Active Directory module for PowerShell
+# If not already imported, you might need to run: Import-Module ActiveDirectory
+
+try {
+    Write-Host "Querying Active Directory for server hostnames..."
+
+    $serverHostnames = Get-ADComputer -Filter 'OperatingSystem -like "*Server*" -or PrimaryGroupID -eq (Get-ADGroup -Identity "Domain Controllers").SID' -Properties Name, OperatingSystem | Select-Object -ExpandProperty Name | Sort-Object
+
+    if ($serverHostnames) {
+        Write-Host "`nFound the following server hostnames:`n"
+        foreach ($hostname in $serverHostnames) {
+            Write-Host $hostname
+        }
+        Write-Host "`nTotal servers found: $($serverHostnames.Count)"
+
+        # Optional: Save the list to a text file
+        $outputPath = Join-Path $env:TEMP "ServerHostnames_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+        $serverHostnames | Out-File -FilePath $outputPath
+        Write-Host "`nList saved to: $outputPath"
+    } else {
+        Write-Warning "No servers found in Active Directory based on the criteria."
+    }
+}
+catch {
+    Write-Error "An error occurred: $($_.Exception.Message)"
+    Write-Error "Please ensure the Active Directory module is installed and you have appropriate permissions."
+}
+```
+Get list of Servers2
+```
+# Requires the Active Directory module for PowerShell
+# If not already imported, you might need to run: Import-Module ActiveDirectory
+
+try {
+    Write-Host "Querying Active Directory for server hostnames..."
+
+    # Define the output file path upfront
+    $outputPath = Join-Path $env:TEMP "ServerHostnames_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+
+    # Initialize a counter
+    $serverCount = 0
+
+    # Use a pipeline to process and output each server as it's found
+    Get-ADComputer -Filter 'OperatingSystem -like "*Server*" -or PrimaryGroupID -eq (Get-ADGroup -Identity "Domain Controllers").SID' -Properties Name, OperatingSystem |
+    Where-Object { $_.Name } | # Ensure the Name property exists and is not null
+    Sort-Object Name | # Sorts the objects by Name before outputting
+    ForEach-Object {
+        $hostname = $_.Name
+        Write-Host $hostname # Output to console
+        $hostname | Out-File -FilePath $outputPath -Append # Append to file
+        $serverCount++
+    }
+
+    Write-Host "`nFinished enumerating servers."
+    Write-Host "Total servers found: $serverCount"
+    Write-Host "List saved to: $outputPath"
+
+}
+catch {
+    Write-Error "An error occurred: $($_.Exception.Message)"
+    Write-Error "Please ensure the Active Directory module is installed and you have appropriate permissions."
+}
+```
+enumeration:
+```
+# Path to the list of servers
+$serverList = Get-Content -Path "serv.txt"
+
+# Output CSV path
+$outputCsv = "LocalAdmins.csv"
+
+# Initialize an empty array to store results
+$results = @()
+
+foreach ($server in $serverList) {
+    Write-Host "Querying $server..."
+
+    try {
+        $admins = Invoke-Command -ComputerName $server -ScriptBlock {
+            $group = [ADSI]"WinNT://$env:COMPUTERNAME/Administrators,group"
+            $members = @()
+            foreach ($member in @($group.Invoke("Members"))) {
+                $type = $member.GetType().InvokeMember("Class", 'GetProperty', $null, $member, $null)
+                $name = $member.GetType().InvokeMember("Name", 'GetProperty', $null, $member, $null)
+                $members += [PSCustomObject]@{
+                    UserOrGroup = $type
+                    Name        = $name
+                }
+            }
+            return $members
+        }
+
+        foreach ($admin in $admins) {
+            $results += [PSCustomObject]@{
+                Hostname     = $server
+                UserOrGroup  = $admin.UserOrGroup
+                Name         = $admin.Name
+            }
+        }
+    }
+    catch {
+        $results += [PSCustomObject]@{
+            Hostname     = $server
+            UserOrGroup  = "ERROR"
+            Name         = $_.Exception.Message
+        }
+    }
+}
+
+# Export the results to CSV
+$results | Export-Csv -Path $outputCsv -NoTypeInformation -Encoding UTF8
+
+Write-Host "Done. Output saved to $outputCsv"
+
+```
