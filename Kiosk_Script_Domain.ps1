@@ -20,6 +20,7 @@
 .RESTORE
 Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name DefaultPassword
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name Shell -Value "explorer.exe"
+
 #>
 
 # -----------------------------------------------------------------------------
@@ -105,11 +106,11 @@ else {
 try {
     # If the path ends with ".ps1", construct the command to run the script.
     if ($exePath -like "*.ps1") {
-        $finalShell = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$exePath`""
+        $finalShell = "powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"$exePath`""
     }
     # If using the dedicated script variable, construct the command to run that script.
     elseif ($scriptPath -like "*.ps1") {
-        $finalShell = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+        $finalShell = "powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
     }
     # Otherwise, assume it's a direct executable.
     else {
