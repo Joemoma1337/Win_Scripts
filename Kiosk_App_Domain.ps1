@@ -16,6 +16,9 @@
     Author: Gemini
     Date: August 2025
     Requires: Administrative privileges
+.RESTORE
+Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name DefaultPassword
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name Shell -Value "explorer.exe"
 #>
 
 # -----------------------------------------------------------------------------
