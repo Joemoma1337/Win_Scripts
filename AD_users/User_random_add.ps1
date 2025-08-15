@@ -3,27 +3,30 @@
 # Define script parameters for flexibility
 [CmdletBinding()]
 param (
-    [Parameter(Mandatory = $true, HelpMessage = "The domain DN (e.g., 'DC=lab,DC=local').")]
-    [string]$DomainDN,
+    # The domain DN is now hard-coded and will not prompt for input.
+    [string]$DomainDN = "DC=lab,DC=local",
 
     [Parameter(Mandatory = $false, HelpMessage = "The name of the OU to create users in.")]
     [string]$OUName = "vulnerable",
 
-    [Parameter(Mandatory = $false, HelpMessage = "The name of the group to add users to.")]
-    [string]$GroupName = "VulnerableUsers",
+    [Parameter(Mandatory = $false, HelpMessage = "The list of group names to create and assign users to.")]
+    [string[]]$GroupNames = @("Cyber_Team", "ITOps_Team", "HR_Team", "Training_Team", "Legal_Team", "Compliance_Team", "Sales_Team", "Marketing_Team", "Logistics_Team", "Procurement_Team"),
 
     [Parameter(Mandatory = $false, HelpMessage = "The number of users to create.")]
-    [int]$NumberOfUsers = 101,
+    [int]$NumberOfUsers = 5000,
 
     [Parameter(Mandatory = $false, HelpMessage = "The total time in minutes to spread the user creation over.")]
-    [int]$TotalMinutes = 60, # Default to 60 minutes (1 hour)
+    [int]$TotalMinutes = 5760, # Default to 60 minutes (1 hour)
 
     [Parameter(Mandatory = $false, HelpMessage = "The path and filename for the log file.")]
     [string]$LogFilePath = ".\user_creation_log.txt"
 )
 
-# Build the full OU path from the parameters
-$OUPath = "OU=$OUName,$DomainDN"
+# --- FIX for quote issue in DomainDN ---
+# Remove any single or double quotes that may have been provided in the parameter input
+$CleanedDomainDN = $DomainDN.Trim("'").Trim('"')
+# Build the full OU path from the cleaned parameters
+$OUPath = "OU=$OUName,$CleanedDomainDN"
 
 # Load the first names, last names, and passwords from text files
 # Filter out any empty or whitespace-only lines
@@ -65,21 +68,23 @@ if (-not (Get-ADOrganizationalUnit -Identity $OUPath -ErrorAction SilentlyContin
 }
 Write-Host ""
 
-# Ensure the security group exists
-$groupDN = "CN=$GroupName,$OUPath"
-Write-Host "Checking for Security Group: $GroupName"
-if (-not (Get-ADGroup -Filter "Name -eq '$GroupName'" -ErrorAction SilentlyContinue)) {
-    Write-Host "Security group '$GroupName' does not exist. Creating it."
-    try {
-        New-ADGroup -Name $GroupName -GroupScope Global -Path $OUPath -GroupCategory Security -Description "Group for intentionally vulnerable lab users" -ErrorAction Stop
-        Write-Host "Security group '$GroupName' created successfully."
+# Ensure the security groups exist
+Write-Host "Checking for Security Groups: $GroupNames"
+foreach ($groupName in $GroupNames) {
+    if (-not (Get-ADGroup -Filter "Name -eq '$groupName'" -ErrorAction SilentlyContinue)) {
+        Write-Host "Security group '$groupName' does not exist. Creating it."
+        try {
+            New-ADGroup -Name $groupName -GroupScope Global -Path $OUPath -GroupCategory Security -Description "Group for intentionally vulnerable lab users" -ErrorAction Stop
+            Write-Host "Security group '$groupName' created successfully."
+        }
+        catch {
+            Write-Error "Failed to create security group '$groupName'. Error: $($_.Exception.Message)"
+            Write-Error "A common reason for this error is a permissions issue. The account running this script must have permissions to create security groups in the specified OU ($OUPath)."
+            exit 1
+        }
+    } else {
+        Write-Host "Security group '$groupName' already exists."
     }
-    catch {
-        Write-Error "Failed to create security group '$GroupName'. Error: $($_.Exception.Message)"
-        exit 1
-    }
-} else {
-    Write-Host "Security group '$GroupName' already exists."
 }
 Write-Host ""
 
@@ -122,8 +127,8 @@ for ($i = 1; $i -le $NumberOfUsers; $i++) {
     $fullName = "$firstName $lastName"
     $givenName = $firstName
 
-    # Generate a base SamAccountName
-    $baseSam = ($firstName.Substring(0, [Math]::Min(2, $firstName.Length)) + $lastName).ToLower()
+    # Generate a base SamAccountName using the new firstname.lastname format
+    $baseSam = "$firstName.$lastName".ToLower()
     $samAccountName = $baseSam
     $counter = 1
 
@@ -138,7 +143,7 @@ for ($i = 1; $i -le $NumberOfUsers; $i++) {
     }
 
     # Create the UserPrincipalName
-    $userPrincipalName = "$samAccountName@$((Split-Path -Path $DomainDN -Leaf).Replace('DC=',''))"
+    $userPrincipalName = "$samAccountName@$((Split-Path -Path $CleanedDomainDN -Leaf).Replace('DC=',''))"
 
     # Randomly select a password, ensuring it's not empty
     $password = ($passwords | Get-Random).Trim()
@@ -168,9 +173,11 @@ for ($i = 1; $i -le $NumberOfUsers; $i++) {
 
         $userObjectForGroup = Get-ADUser -Identity $samAccountName -ErrorAction SilentlyContinue
         if ($userObjectForGroup) {
-            Write-Host "Found user object for $samAccountName. Adding to group '$GroupName'..."
-            Add-ADGroupMember -Identity $GroupName -Members $userObjectForGroup.DistinguishedName -ErrorAction Stop
-            Write-Host "Successfully added user '$fullName' ($samAccountName) to group '$GroupName'."
+            # --- New Logic: Randomly assign to a group ---
+            $randomGroup = $GroupNames | Get-Random
+            Write-Host "Found user object for $samAccountName. Adding to group '$randomGroup'..."
+            Add-ADGroupMember -Identity $randomGroup -Members $userObjectForGroup.DistinguishedName -ErrorAction Stop
+            Write-Host "Successfully added user '$fullName' ($samAccountName) to group '$randomGroup'."
         } else {
             Write-Warning "User '$fullName' ($samAccountName) was created but could not be found for group membership. Skipping group add."
         }
