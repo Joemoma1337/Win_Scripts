@@ -10,13 +10,13 @@ param (
     [string]$OUName = "vulnerable",
 
     [Parameter(Mandatory = $false, HelpMessage = "The list of group names to create and assign users to.")]
-    [string[]]$GroupNames = @("Cyber_Team", "ITOps_Team", "HR_Team", "Training_Team", "Legal_Team", "Compliance_Team", "Sales_Team", "Marketing_Team", "Logistics_Team", "Procurement_Team"),
+    [string[]]$GroupNames = @("Security_Team", "IT_Team", "HR_Team", "Training_Team", "Legal_Team", "Audit_Team", "Sales_Team", "Marketing_Team", "Logistics_Team", "Procurement_Team", "Service_Desk_Team", "Dev_Team"),
 
     [Parameter(Mandatory = $false, HelpMessage = "The number of users to create.")]
-    [int]$NumberOfUsers = 5000,
+    [int]$NumberOfUsers = 1000,
 
     [Parameter(Mandatory = $false, HelpMessage = "The total time in minutes to spread the user creation over.")]
-    [int]$TotalMinutes = 5760, # Default to 60 minutes (1 hour)
+    [int]$TotalMinutes = 1000, # Default to 60 minutes (1 hour)
 
     [Parameter(Mandatory = $false, HelpMessage = "The path and filename for the log file.")]
     [string]$LogFilePath = ".\user_creation_log.txt"
@@ -144,6 +144,9 @@ for ($i = 1; $i -le $NumberOfUsers; $i++) {
 
     # Create the UserPrincipalName
     $userPrincipalName = "$samAccountName@$((Split-Path -Path $CleanedDomainDN -Leaf).Replace('DC=',''))"
+    
+    # Generate a random 7-digit Employee ID
+    $employeeID = "ID" + (Get-Random -Minimum 1000000 -Maximum 9999999)
 
     # Randomly select a password, ensuring it's not empty
     $password = ($passwords | Get-Random).Trim()
@@ -155,10 +158,11 @@ for ($i = 1; $i -le $NumberOfUsers; $i++) {
 
     # Create the new user in Active Directory
     try {
-        Write-Host "Attempting to create user: $fullName (SamAccountName: $samAccountName, UPN: $userPrincipalName)"
+        Write-Host "Attempting to create user: $fullName (SamAccountName: $samAccountName, UPN: $userPrincipalName, Employee ID: $employeeID)"
 
         $newUser = New-ADUser -Name $fullName `
                    -GivenName $givenName `
+                   -Surname $lastName `
                    -SamAccountName $samAccountName `
                    -UserPrincipalName $userPrincipalName `
                    -Path $OUPath `
@@ -167,6 +171,7 @@ for ($i = 1; $i -le $NumberOfUsers; $i++) {
                    -ChangePasswordAtLogon $false `
                    -PasswordNeverExpires $true `
                    -Description "Vulnerable test user for lab" `
+                   -EmployeeID $employeeID `
                    -ErrorAction Stop
 
         Write-Host "Successfully created user: $fullName"
