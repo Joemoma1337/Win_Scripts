@@ -12,15 +12,14 @@ param (
     [Parameter(Mandatory = $false, HelpMessage = "The list of group names to create and assign users to.")]
     [string[]]$GroupNames = @("Security_Team", "IT_Team", "HR_Team", "Training_Team", "Legal_Team", "Audit_Team", "Sales_Team", "Marketing_Team", "Logistics_Team", "Procurement_Team", "Service_Desk_Team", "Dev_Team"),
 
-    [Parameter(Mandatory = $false, HelpMessage = "The number of users to create.")]
-    [int]$NumberOfUsers = 1000,
-
-    [Parameter(Mandatory = $false, HelpMessage = "The total time in minutes to spread the user creation over.")]
-    [int]$TotalMinutes = 1000, # Default to 60 minutes (1 hour)
-
     [Parameter(Mandatory = $false, HelpMessage = "The path and filename for the log file.")]
     [string]$LogFilePath = ".\user_creation_log.txt"
 )
+
+# --- HARD-CODED VARIABLES ---
+# The total number of users to create and the time window are now set here instead of as parameters.
+[int]$NumberOfUsers = 1500
+[int]$TotalMinutes = 5760
 
 # --- FIX for quote issue in DomainDN ---
 # Remove any single or double quotes that may have been provided in the parameter input
@@ -88,70 +87,96 @@ foreach ($groupName in $GroupNames) {
 }
 Write-Host ""
 
-# Calculate the average delay between users
-$totalSeconds = $TotalMinutes * 60
-$averageDelay = $totalSeconds / $NumberOfUsers
-
-Write-Host "Starting user creation process for $NumberOfUsers users over $TotalMinutes minutes..."
-Write-Host "Average delay between users will be approximately $($averageDelay) seconds."
+Write-Host "Starting user creation process..."
 Write-Host ""
 
-# Loop to create users
-for ($i = 1; $i -le $NumberOfUsers; $i++) {
-    # --- Timing Logic ---
-    # To create random delays, we'll get a random number of seconds centered around the average delay.
-    # We'll use a range of 50% to 150% of the average delay to keep it from being too uniform or too sparse.
-    $minDelay = [int]($averageDelay * 0.5)
-    $maxDelay = [int]($averageDelay * 1.5)
+# --- NEW TIMING LOGIC ---
+# This new logic generates a random schedule for all user creations within the specified total minutes.
+Write-Host "Generating a random creation schedule for $NumberOfUsers users within the next $TotalMinutes minutes."
+
+# Get the script's start time and calculate the total duration in seconds
+$startTime = Get-Date
+$totalSeconds = $TotalMinutes * 60
+
+# Generate a list of random second offsets from the start time.
+# Each offset represents a point in time when a user will be created.
+$creationScheduleSeconds = 1..$NumberOfUsers | ForEach-Object { Get-Random -Minimum 1 -Maximum $totalSeconds }
+
+# Sort the schedule to process users in chronological order
+$sortedSchedule = $creationScheduleSeconds | Sort-Object
+
+Write-Host "Random schedule generated. Starting user creation process..."
+Write-Host ""
+
+
+# --- MAIN USER CREATION LOOP ---
+# This loop now iterates through the pre-generated random schedule.
+for ($i = 0; $i -lt $NumberOfUsers; $i++) {
+    $userIndex = $i + 1
+    $scheduledSecond = $sortedSchedule[$i]
     
-    # Ensure minDelay is at least 1 second to avoid zero-second sleep and rapid-fire creation
-    if ($minDelay -lt 1) { $minDelay = 1 }
+    # Calculate the exact time this user should be created based on the schedule
+    $targetCreationTime = $startTime.AddSeconds($scheduledSecond)
     
-    $randomDelay = Get-Random -Minimum $minDelay -Maximum $maxDelay
+    # Calculate how long we need to wait to reach that specific time
+    $currentTime = Get-Date
+    $timeToWait = New-TimeSpan -Start $currentTime -End $targetCreationTime
     
-    Write-Host "--- Creating User $i of $NumberOfUsers ---"
-    Write-Host "Sleeping for $randomDelay seconds before creating this user."
-    Start-Sleep -Seconds $randomDelay
+    Write-Host "--- Preparing to Create User $userIndex of $NumberOfUsers ---"
     
-    # Randomly select a first name and last name, ensuring they are not empty
-    $firstName = ($firstNames | Get-Random).Trim()
-    $lastName = ($lastNames | Get-Random).Trim()
-    
-    # Skip if either name is empty after trimming
-    if ([string]::IsNullOrEmpty($firstName) -or [string]::IsNullOrEmpty($lastName)) {
-        Write-Warning "Skipping user creation for an empty first or last name. Iteration: $i. Please check your name files."
-        continue
+    # Only sleep if the target time is in the future.
+    # This handles cases where previous user creations took longer than expected.
+    if ($timeToWait.TotalSeconds -gt 0) {
+        $waitMinutes = [math]::Floor($timeToWait.TotalMinutes)
+        $waitSeconds = $timeToWait.Seconds
+        Write-Host "Next user is scheduled for creation at: $targetCreationTime. Waiting for $waitMinutes minutes and $waitSeconds seconds."
+        Start-Sleep -Seconds $timeToWait.TotalSeconds
+    } else {
+        Write-Host "Scheduled time for this user has already passed. Proceeding with creation immediately."
     }
 
-    # Create the full name and given name
-    $fullName = "$firstName $lastName"
-    $givenName = $firstName
-
-    # Generate a base SamAccountName using the new firstname.lastname format
-    $baseSam = "$firstName.$lastName".ToLower()
-    $samAccountName = $baseSam
-    $counter = 1
-
-    # Ensure uniqueness of SamAccountName
-    while (Get-ADUser -Filter "SamAccountName -eq '$samAccountName'" -ErrorAction SilentlyContinue) {
-        $samAccountName = "$baseSam$counter"
-        $counter++
-        if ($counter -gt 1000) {
-            Write-Warning "Could not find a unique SamAccountName for $baseSam after 1000 attempts. Skipping user $fullName."
-            continue 2
+    # Use a do/while loop to retry the entire creation process if any unique attribute already exists or if
+    # the generated SamAccountName is too long.
+    do {
+        $userCreatedSuccessfully = $false
+        # Randomly select a first name and last name, ensuring they are not empty
+        $firstName = ($firstNames | Get-Random).Trim()
+        $lastName = ($lastNames | Get-Random).Trim()
+        
+        # Skip if either name is empty after trimming
+        if ([string]::IsNullOrEmpty($firstName) -or [string]::IsNullOrEmpty($lastName)) {
+            Write-Warning "Skipping user creation for an empty first or last name. Please check your name files."
+            continue
         }
-    }
 
-    # Create the UserPrincipalName
-    $userPrincipalName = "$samAccountName@$((Split-Path -Path $CleanedDomainDN -Leaf).Replace('DC=',''))"
-    
-    # Generate a random 7-digit Employee ID
-    $employeeID = "ID" + (Get-Random -Minimum 1000000 -Maximum 9999999)
+        # Generate unique full name (CN), SamAccountName, and EmployeeID
+        $fullName = "$firstName $lastName"
+        $givenName = $firstName
+        $samAccountName = "$firstName.$lastName".ToLower()
+        $userPrincipalName = "$samAccountName@$((Get-ADDomain).DNSRoot)" # More reliable way to get domain DNS name
+        $employeeID = "ID" + (Get-Random -Minimum 1000000 -Maximum 9999999)
+
+        # Check for conflicts and length violations in a single, more efficient query
+        $samAccountNameTooLong = $samAccountName.Length -gt 20
+        $userExists = $false
+        if (-not $samAccountNameTooLong) {
+            $filter = "(Name -eq '$fullName') -or (SamAccountName -eq '$samAccountName') -or (EmployeeID -eq '$employeeID')"
+            if (Get-ADUser -Filter $filter -Properties EmployeeID -ErrorAction SilentlyContinue) {
+                $userExists = $true
+            }
+        }
+
+        if ($userExists -or $samAccountNameTooLong) {
+            # This is a short, randomized retry delay to handle naming conflicts.
+            Write-Host "One or more user attributes already exist or are invalid. Regenerating attributes and retrying..."
+            Start-Sleep -Seconds (Get-Random -Minimum 1 -Maximum 3) # Short delay before retry
+        }
+    } while ($userExists -or $samAccountNameTooLong)
 
     # Randomly select a password, ensuring it's not empty
     $password = ($passwords | Get-Random).Trim()
     if ([string]::IsNullOrEmpty($password)) {
-        Write-Warning "Skipping user '$fullName' due to an empty password selected from password.txt. Iteration: $i."
+        Write-Warning "Skipping user '$fullName' due to an empty password selected from password.txt."
         continue
     }
     $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
@@ -160,39 +185,33 @@ for ($i = 1; $i -le $NumberOfUsers; $i++) {
     try {
         Write-Host "Attempting to create user: $fullName (SamAccountName: $samAccountName, UPN: $userPrincipalName, Employee ID: $employeeID)"
 
-        $newUser = New-ADUser -Name $fullName `
-                   -GivenName $givenName `
-                   -Surname $lastName `
-                   -SamAccountName $samAccountName `
-                   -UserPrincipalName $userPrincipalName `
-                   -Path $OUPath `
-                   -AccountPassword $securePassword `
-                   -Enabled $true `
-                   -ChangePasswordAtLogon $false `
-                   -PasswordNeverExpires $true `
-                   -Description "Vulnerable test user for lab" `
-                   -EmployeeID $employeeID `
-                   -ErrorAction Stop
+        # Use -PassThru to get the new user object back without a second query
+        $newUserObject = New-ADUser -Name $fullName `
+            -GivenName $givenName `
+            -Surname $lastName `
+            -SamAccountName $samAccountName `
+            -UserPrincipalName $userPrincipalName `
+            -Path $OUPath `
+            -AccountPassword $securePassword `
+            -Enabled $true `
+            -ChangePasswordAtLogon $false `
+            -PasswordNeverExpires $true `
+            -Description "Vulnerable test user for lab" `
+            -EmployeeID $employeeID `
+            -PassThru `
+            -ErrorAction Stop
 
         Write-Host "Successfully created user: $fullName"
 
-        $userObjectForGroup = Get-ADUser -Identity $samAccountName -ErrorAction SilentlyContinue
-        if ($userObjectForGroup) {
-            # --- New Logic: Randomly assign to a group ---
-            $randomGroup = $GroupNames | Get-Random
-            Write-Host "Found user object for $samAccountName. Adding to group '$randomGroup'..."
-            Add-ADGroupMember -Identity $randomGroup -Members $userObjectForGroup.DistinguishedName -ErrorAction Stop
-            Write-Host "Successfully added user '$fullName' ($samAccountName) to group '$randomGroup'."
-        } else {
-            Write-Warning "User '$fullName' ($samAccountName) was created but could not be found for group membership. Skipping group add."
-        }
+        # Randomly assign the new user to one of the security groups
+        $randomGroup = $GroupNames | Get-Random
+        Write-Host "Adding user '$fullName' to group '$randomGroup'..."
+        Add-ADGroupMember -Identity $randomGroup -Members $newUserObject -ErrorAction Stop
+        Write-Host "Successfully added user to group '$randomGroup'."
         
         # --- Logging Logic ---
-        # Get the current timestamp
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        # Create the log entry string
-        $logEntry = "$timestamp - User created: $samAccountName"
-        # Append the log entry to the specified log file
+        $logEntry = "$timestamp - User created: $samAccountName, Group: $randomGroup"
         Add-Content -Path $LogFilePath -Value $logEntry
         Write-Host "Logged user creation for '$samAccountName' to '$LogFilePath'."
 
@@ -203,4 +222,4 @@ for ($i = 1; $i -le $NumberOfUsers; $i++) {
     Write-Host "" # Blank line for readability
 }
 
-Write-Host "Script execution completed. All $NumberOfUsers users have been created and logged."
+Write-Host "Script execution completed. All scheduled user creations have been attempted."
