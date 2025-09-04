@@ -4,7 +4,7 @@ Invoke-WebRequest -Uri "https://dl.tailscale.com/stable/tailscale-setup-1.86.2-a
 echo "PsExec Download"
 Invoke-WebRequest -Uri "https://github.com/Joemoma1337/Win_Scripts/raw/refs/heads/main/PsExec.exe" -OutFile "C:\Temp\psexec.exe"
 echo "2.remote.bat Download"
-Invoke-WebRequest -Uri "Invoke-WebRequest -Uri https://raw.githubusercontent.com/Joemoma1337/Win_Scripts/refs/heads/main/Remote_Wipe/2.remote.bat" -OutFile "C:\Temp\2.remote.bat"
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Joemoma1337/Win_Scripts/refs/heads/main/Remote_Wipe/2.remote2.bat" -OutFile "C:\Temp\2.remote2.bat"
 
 #OpenSSH
 Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH.Server*'
