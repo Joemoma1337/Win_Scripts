@@ -3,10 +3,11 @@ New-Item -ItemType Directory -Path C:\Temp -Force
 
 #download tools:
 Invoke-WebRequest -Uri "https://dl.tailscale.com/stable/tailscale-setup-1.86.2-amd64.msi" -OutFile "C:\Temp\Tailscale.msi"
-Invoke-WebRequest -Uri "https://github.com/Joemoma1337/Win_Scripts/raw/refs/heads/main/PsExec.exe" -OutFile C:\Temp\psexec.exe
+Invoke-WebRequest -Uri "https://github.com/Joemoma1337/Win_Scripts/raw/refs/heads/main/PsExec.exe" -OutFile "C:\Temp\psexec.exe"
+Invoke-WebRequest -Uri "Invoke-WebRequest -Uri https://raw.githubusercontent.com/Joemoma1337/Win_Scripts/refs/heads/main/Remote_Wipe/2.remote.bat" -OutFile "C:\Temp\2.remote.bat"
 
 #OpenSSH
-Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH*'
+Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH.Server*'
 Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
 Start-Service sshd
 Set-Service -Name sshd -StartupType 'Automatic'
