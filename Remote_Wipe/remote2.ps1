@@ -1,6 +1,7 @@
 $msiUrl = "https://dl.tailscale.com/stable/tailscale-setup-1.86.2-amd64.msi" 
 $msiPath = "$env:TEMP\tailscale-installer.msi"
 $tailscaleExePath = Join-Path -Path $env:ProgramW6432 -ChildPath "Tailscale\tailscale.exe"
+taskkill /IM tailscale-ipn.exe /F
 # --- Step 4: Verify Installation and Proceed to Activation ---
 if (Test-Path -Path $tailscaleExePath) {
     Write-Host "Tailscale has been successfully installed."
