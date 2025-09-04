@@ -43,6 +43,6 @@ while ($true) {
     Start-Sleep -Seconds 1
 }
 # Start Tailscale with auth key
-& "C:\Program Files\Tailscale\tailscale.exe" up --authkey=tskey-auth-kyKFBAkE9911CNTRL-MsX9aH7cNxhBwhd192bCxhRd6x2axifiD --accept-routes --accept-dns --unattended
+& "C:\Program Files\Tailscale\tailscale.exe" up --authkey=<UPDATE-KEY> --accept-routes --accept-dns --unattended
 # Verify Tailscale service
 Get-Service -Name Tailscale
