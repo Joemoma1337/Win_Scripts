@@ -1,9 +1,9 @@
-#Create temp folder:
-New-Item -ItemType Directory -Path C:\Temp -Force
-
 #download tools:
+echo "Tailscale Download"
 Invoke-WebRequest -Uri "https://dl.tailscale.com/stable/tailscale-setup-1.86.2-amd64.msi" -OutFile "C:\Temp\Tailscale.msi"
+echo "PsExec Download"
 Invoke-WebRequest -Uri "https://github.com/Joemoma1337/Win_Scripts/raw/refs/heads/main/PsExec.exe" -OutFile "C:\Temp\psexec.exe"
+echo "2.remote.bat Download"
 Invoke-WebRequest -Uri "Invoke-WebRequest -Uri https://raw.githubusercontent.com/Joemoma1337/Win_Scripts/refs/heads/main/Remote_Wipe/2.remote.bat" -OutFile "C:\Temp\2.remote.bat"
 
 #OpenSSH
@@ -51,3 +51,4 @@ Get-Service -Name Tailscale
 net user RecoveryAdmin <UPDATE-PASSWORD> /add
 net localgroup Administrators RecoveryAdmin /add
 reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList" /v RecoveryAdmin /t REG_DWORD /d 0 /f
+Get-NetIPAddress -InterfaceAlias "Tailscale" | Select-Object IPAddress
