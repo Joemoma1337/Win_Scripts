@@ -1,50 +1,47 @@
+#OpenSSH
+Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH*'
+
+Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+
+Start-Service sshd
+
+Set-Service -Name sshd -StartupType 'Automatic'
+
+
+if (!(Get-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -ErrorAction SilentlyContinue | Select-Object Name, Enabled)) { 
+    Write-Output "Firewall Rule 'OpenSSH-Server-In-TCP' does not exist, creating it..." 
+    New-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 
+} else { 
+    Write-Output "Firewall rule 'OpenSSH-Server-In-TCP' has been created and exists." 
+}
+
+Get-Service -Name "sshd"
+
+#Tailscale
+# --- Step 1: Set Variables and Define Paths ---
+# Use the direct URL to the latest stable MSI installer.
 $msiUrl = "https://dl.tailscale.com/stable/tailscale-setup-1.86.2-amd64.msi" 
 $msiPath = "$env:TEMP\tailscale-installer.msi"
+
+# CORRECTED: Use ProgramW6432 to always get the 64-bit Program Files path.
 $tailscaleExePath = Join-Path -Path $env:ProgramW6432 -ChildPath "Tailscale\tailscale.exe"
-taskkill /IM tailscale-ipn.exe /F
-# --- Step 4: Verify Installation and Proceed to Activation ---
-if (Test-Path -Path $tailscaleExePath) {
-    Write-Host "Tailscale has been successfully installed."
 
-    # Choose ONE of the following activation methods below.
-    # --- METHOD A: Interactive Activation (Requires a browser login) ---
-    # Write-Host "Running `tailscale up`. Please complete the authentication in your browser."
-    # & "$tailscaleExePath" up
-
-    # --- METHOD B: Unattended Activation with an Auth Key (For automation) ---
-    $AuthKey = "tskey-auth-UPDATE-KEY"
-    Write-Host "Activating Tailscale with an authentication key..."
-    & "$tailscaleExePath" up --authkey "$AuthKey"
-    
-    Write-Host "Tailscale activation command executed."
-} else {
-    Write-Error "Tailscale executable not found at '$tailscaleExePath'. The installation may have failed."
-}
-# --- Step 1: Set Variables for the Download ---
-# The URL for the raw file on GitHub.
-$psexecUrl = "https://github.com/Joemoma1337/Win_Scripts/raw/refs/heads/main/PsExec.exe"
-
-# The path where you want to save the downloaded file.
-# We'll save it to the current user's Downloads folder for convenience.
-$psexecPath = "$env:USERPROFILE\Downloads\PsExec.exe"
-
-# --- Step 2: Download the file using Invoke-WebRequest ---
-Write-Host "Starting download of PsExec.exe from GitHub..."
+# --- Step 2: Download the Tailscale Installer ---
+Write-Host "Downloading Tailscale installer from $msiUrl..."
 
 try {
-    # The -OutFile parameter specifies where to save the downloaded content.
-    Invoke-WebRequest -Uri $psexecUrl -OutFile $psexecPath
-    Write-Host "Download successful! File saved to: $psexecPath"
-    
-    # --- Step 3: (Optional) Verify the file exists ---
-    if (Test-Path -Path $psexecPath) {
-        Write-Host "File verified. You can now use PsExec.exe."
-    } else {
-        Write-Error "Download completed, but the file was not found at the specified path."
-    }
+    Invoke-WebRequest -Uri $msiUrl -OutFile $msiPath
+    Write-Host "Download complete. Installer saved to $msiPath"
 }
 catch {
-    # If an error occurs during the download, this block will be executed.
-    Write-Error "Failed to download PsExec.exe. Error details:"
-    Write-Error $_.Exception.Message
+    Write-Error "Failed to download the Tailscale installer. Please check the URL and your internet connection."
+    exit
 }
+
+# --- Step 3: Install Tailscale Silently ---
+Write-Host "Starting silent Tailscale installation..."
+
+Start-Process -FilePath msiexec -ArgumentList "/i", "`"$msiPath`"", "/qn", "TS_NOLAUNCH=1" -Wait
+
+Write-Host "Installation process complete. Verifying installation..."
+Restart-Computer -Force
