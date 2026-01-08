@@ -1,6 +1,6 @@
 # --- CONFIGURATION ---
-$serverFile = "C:\Users\Administrator\Downloads\servers.txt"
-$logFile = "C:\Users\Administrator\Downloads\cleanup_sessions.log"
+$serverFile = "C:\Users\Administrator\Downloads\Server\servers.txt"
+$logFile = "C:\Users\Administrator\Downloads\Server\term_disc_report.log"
 # ---------------------
 
 $servers = Get-Content $serverFile | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
@@ -10,14 +10,11 @@ foreach ($server in $servers) {
     Write-Host "`nProcessing $server..." -ForegroundColor Cyan
 
     try {
-        # 1. Quick check for connectivity (Ping)
         if (Test-Connection -ComputerName $server -Count 1 -Quiet) {
             
-            # 2. Query sessions and look for 'Disc' (Disconnected)
-            # 2>&1 ensures we capture error messages in our variable
             $sessions = qwinsta /server:$server 2>&1
             
-            # Filter for rows containing "Disc"
+            # Filter for 'Disc' and exclude 'services'
             $discSessions = $sessions | Where-Object { $_ -match "Disc" -and $_ -notmatch "services" }
 
             if ($null -eq $discSessions) {
@@ -26,16 +23,20 @@ foreach ($server in $servers) {
             }
 
             foreach ($session in $discSessions) {
-                # 3. Extract Session ID using Regex
-                # This looks for the numeric ID that appears before "Disc"
-                if ($session -match "\s+(\d+)\s+Disc") {
-                    $sessionId = $matches[1].Trim()
+                # REGEX EXPLANATION:
+                # ^\s* : Start of line and any leading space
+                # (\S+)    : Group 1 - The Username (first set of non-whitespace characters)
+                # \s+      : Spaces
+                # (\d+)    : Group 2 - The Session ID (digits)
+                # \s+Disc  : The word Disc
+                if ($session.Trim() -match "^(\S+)\s+(\d+)\s+Disc") {
+                    $userName  = $matches[1]
+                    $sessionId = $matches[2]
                     
-                    # 4. Execute LOGOFF
-                    # /v provides verbose output for our logs
+                    # Execute LOGOFF
                     $result = logoff $sessionId /server:$server /v 2>&1
                     
-                    $msg = "$(Get-Date -Format 'HH:mm:ss') : SUCCESS : Logged off Session $sessionId on $server"
+                    $msg = "$(Get-Date -Format 'HH:mm:ss') : SUCCESS : Logged off User [$userName] (ID: $sessionId) on $server"
                     Write-Host "  $msg" -ForegroundColor Green
                     $msg | Out-File -FilePath $logFile -Append
                 }
