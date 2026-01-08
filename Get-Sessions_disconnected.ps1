@@ -18,7 +18,7 @@ foreach ($server in $servers) {
             
             # 2. Filter for the Header line OR lines containing "Disc"
             # This ensures you keep the "SESSIONNAME USERNAME ID STATE" labels
-            $discSessions = $allSessions | Where-Object { $_ -match "SESSIONNAME" -or $_ -match "Disc" }
+            $discSessions = $allSessions | Where-Object { $_ -match "SESSIONNAME" -or $_ -match "Disc" -and $_ -notmatch "services" }
 
             # 3. Output only if sessions were found (besides the header)
             if ($discSessions.Count -gt 1) {
