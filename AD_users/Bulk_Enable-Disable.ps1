@@ -1,13 +1,20 @@
 # --- CONFIGURATION ---
-$action = "Enable" # Set this to "Enable" or "Disable"
-$userList = Get-Content "C:\Users\Administrator\Downloads\users.txt"
-$logFile = "C:\Users\Administrator\Downloads\account_actions.log"
+$action   = "Enable" # Set this to "Enable" or "Disable"
+$filePath = "C:\Users\Administrator\Downloads\Users\users.txt" # Defined once here
+$logFile  = "C:\Users\Administrator\Downloads\Users\account_actions.log"
 # ---------------------
 
-$userList = Get-Content $userFile
+# Verify the file actually exists before starting
+if (-not (Test-Path $filePath)) {
+    Write-Error "The file at $filePath was not found."
+    return
+}
+
+# Load the list using the correct variable
+$userList = Get-Content $filePath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 
 foreach ($samAccount in $userList) {
-    if ([string]::IsNullOrWhiteSpace($samAccount)) { continue } # Skip empty lines
+    $samAccount = $samAccount.Trim() # Remove accidental spaces
 
     try {
         # Verify user exists
@@ -23,10 +30,12 @@ foreach ($samAccount in $userList) {
         }
 
         $message = "$(Get-Date -Format 'HH:mm:ss') : SUCCESS : Account '$samAccount' $status."
-        $message | Tee-Object -FilePath $logFile -Append
+        Write-Host $message -ForegroundColor Green
+        $message | Out-File -FilePath $logFile -Append
     }
     catch {
-        $message = "$(Get-Date -Format 'HH:mm:ss') : ERROR   : User '$samAccount' not found."
-        $message | Tee-Object -FilePath $logFile -Append
+        $message = "$(Get-Date -Format 'HH:mm:ss') : ERROR   : User '$samAccount' - $($_.Exception.Message)"
+        Write-Host $message -ForegroundColor Red
+        $message | Out-File -FilePath $logFile -Append
     }
 }
