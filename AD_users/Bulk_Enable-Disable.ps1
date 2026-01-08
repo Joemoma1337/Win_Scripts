@@ -1,41 +1,53 @@
 # --- CONFIGURATION ---
 $action   = "Enable" # Set this to "Enable" or "Disable"
-$filePath = "C:\Users\Administrator\Downloads\Users\users.txt" # Defined once here
+$filePath = "C:\Users\Administrator\Downloads\Users\users.txt"
 $logFile  = "C:\Users\Administrator\Downloads\Users\account_actions.log"
 # ---------------------
 
-# Verify the file actually exists before starting
 if (-not (Test-Path $filePath)) {
     Write-Error "The file at $filePath was not found."
     return
 }
 
-# Load the list using the correct variable
 $userList = Get-Content $filePath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 
 foreach ($samAccount in $userList) {
-    $samAccount = $samAccount.Trim() # Remove accidental spaces
+    $samAccount = $samAccount.Trim()
 
     try {
-        # Verify user exists
-        $user = Get-ADUser -Identity $samAccount -ErrorAction Stop
+        # 1. Get Initial Status
+        $user = Get-ADUser -Identity $samAccount -Properties Enabled -ErrorAction Stop
+        $initialStatus = if ($user.Enabled) { "Enabled" } else { "Disabled" }
         
+        # 2. Perform Action
         if ($action -eq "Disable") {
-            Disable-ADAccount -Identity $samAccount
-            $status = "DISABLED"
+            Disable-ADAccount -Identity $samAccount -Confirm:$false
+            $targetStatus = "Disabled"
         } 
         else {
-            Enable-ADAccount -Identity $samAccount
-            $status = "ENABLED"
+            Enable-ADAccount -Identity $samAccount -Confirm:$false
+            $targetStatus = "Enabled"
         }
 
-        $message = "$(Get-Date -Format 'HH:mm:ss') : SUCCESS : Account '$samAccount' $status."
-        Write-Host $message -ForegroundColor Green
-        $message | Out-File -FilePath $logFile -Append
+        # 3. Verify Final Status
+        $updatedUser = Get-ADUser -Identity $samAccount -Properties Enabled
+        $finalStatus = if ($updatedUser.Enabled) { "Enabled" } else { "Disabled" }
+
+        # 4. Report Results
+        $msg = "$(Get-Date -Format 'HH:mm:ss') : SUCCESS : User '$samAccount' | Before: $initialStatus | After: $finalStatus"
+        
+        # Color coding for terminal visibility
+        if ($initialStatus -eq $finalStatus) {
+            Write-Host $msg -ForegroundColor Yellow # No change occurred
+        } else {
+            Write-Host $msg -ForegroundColor Green  # Success
+        }
+
+        $msg | Out-File -FilePath $logFile -Append
     }
     catch {
-        $message = "$(Get-Date -Format 'HH:mm:ss') : ERROR   : User '$samAccount' - $($_.Exception.Message)"
-        Write-Host $message -ForegroundColor Red
-        $message | Out-File -FilePath $logFile -Append
+        $errorMsg = "$(Get-Date -Format 'HH:mm:ss') : ERROR   : User '$samAccount' - $($_.Exception.Message)"
+        Write-Host $errorMsg -ForegroundColor Red
+        $errorMsg | Out-File -FilePath $logFile -Append
     }
 }
