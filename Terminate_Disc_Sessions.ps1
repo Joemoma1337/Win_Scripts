@@ -1,6 +1,6 @@
 # --- CONFIGURATION ---
-$serverFile = "C:\Users\Administrator\Downloads\Server\servers.txt"
-$logFile = "C:\Users\Administrator\Downloads\Server\term_disc_report.log"
+$serverFile = "C:\Users\Administrator\Downloads\servers.txt"
+$logFile = "C:\Users\Administrator\Downloads\term_disc_report.log"
 # ---------------------
 
 $servers = Get-Content $serverFile | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
