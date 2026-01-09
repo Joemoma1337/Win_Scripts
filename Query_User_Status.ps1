@@ -1,6 +1,6 @@
 # Path to input and output files
-$userList  = "C:\Users\user\Downloads\Users\users.txt"
-$logFile   = "C:\Users\user\Downloads\Users\UserBulkAction_Log.txt"
+$userList  = "C:\Users\Administrator\Downloads\Users\users.txt"
+$logFile   = "C:\Users\Administrator\Downloads\Users\UserBulkAction_Log.txt"
 
 "=== AD User Status Check $(Get-Date) ===" | Out-File -FilePath $logFile
 
