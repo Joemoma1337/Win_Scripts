@@ -1,7 +1,7 @@
 # --- CONFIGURATION ---
 $serverFile = "C:\Users\Administrator\Downloads\servers.txt" 
 $servers = Get-Content $serverFile
-$logFile = "C:\Users\Administrator\Downloads\session_report.log"
+$logFile = "C:\Users\Administrator\Downloads\Disc_session_report.log"
 # ---------------------
 
 foreach ($server in $servers) {
