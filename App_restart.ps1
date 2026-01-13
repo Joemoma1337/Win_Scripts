@@ -1,3 +1,4 @@
+# application restart based on running services
 # Configuration
 $ProcessNames = @("Service1", "Service2")
 $LauncherPath = "D:\Program.exe"
