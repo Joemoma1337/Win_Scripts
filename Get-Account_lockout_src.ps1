@@ -1,116 +1,67 @@
-#https://thesysadminchannel.com/get-account-lock-out-source-powershell/
-#requires -Module ActiveDirectory
- 
 Function Get-AccountLockoutStatus {
 <#
 .Synopsis
-    This will iterate through all your domain controllers by default and checks for event 4740 in event viewer. To use this, you must dot source the file and call the function.
-    For updated help and examples refer to -Online version.
-  
- 
-.DESCRIPTION
-    This will go through all domain controllers by default and check to see if there are event ID for lockouts and display the information in table with Username, Time, Computername and CallerComputer.
-    For updated help and examples refer to -Online version.
- 
- 
-.NOTES   
-    Name: Get-AccountLockoutStatus
-    Author: theSysadminChannel
-    Version: 1.01
-    DateCreated: 2017-Apr-09
-    DateUpdated: 2017-Apr-09
- 
-.LINK
-    https://thesysadminchannel.com/get-account-lock-out-source-powershell -
- 
- 
-.PARAMETER ComputerName
-    By default all domain controllers are checked. If a ComputerName is specified, it will check only that.
- 
-    .PARAMETER Username
-    If a username is specified, it will only output events for that username.
- 
-    .PARAMETER DaysFromToday
-    This will set the number of days to check in the event logs.  Default is 3 days.
- 
-    .EXAMPLE
-    Get-AccountLockoutStatus
- 
-    Description:
-    Will generate a list of lockout events on all domain controllers.
- 
-    .EXAMPLE
-    Get-AccountLockoutStatus -ComputerName DC01, DC02
- 
-    Description:
-    Will generate a list of lockout events on DC01 and DC02.
- 
-    .EXAMPLE
-    Get-AccountLockoutStatus -Username Username
- 
-    Description:
-    Will generate a list of lockout events on all domain controllers and filter that specific user.
- 
-    .EXAMPLE
-    Get-AccountLockoutStatus -DaysFromToday 2
- 
-    Description:
-    Will generate a list of lockout events on all domain controllers going back only 2 days.
- 
+    Iterates through domain controllers to find lockout events (ID 4740).
 #>
- 
     [CmdletBinding()]
     param(
-        [Parameter(
-            ValueFromPipeline=$true,
-            ValueFromPipelineByPropertyName=$true,
-            Position=0)]
- 
-        [string[]]     $ComputerName = (Get-ADDomainController -Filter * |  select -ExpandProperty Name),
- 
+        [Parameter(ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true, Position=0)]
+        [string[]]$ComputerName,
+
         [Parameter()]
-        [string]       $Username,
- 
+        [string]$Username,
+
         [Parameter()]
-        [int]          $DaysFromToday = 3
-             
+        [int]$DaysFromToday = 3
     )
- 
- 
+
     BEGIN {
-        $Object = @()
-    }
- 
-    PROCESS {
-        Foreach ($Computer in $ComputerName) {
+        # If no computers are specified, get all Domain Controllers
+        if (-not $PSBoundParameters.ContainsKey('ComputerName')) {
             try {
-                $EventID = Get-WinEvent -ComputerName $Computer -FilterHashtable @{Logname = 'Security'; ID = 4740; StartTime = (Get-Date).AddDays(-$DaysFromToday)} -EA 0
-                Foreach ($Event in $EventID) {
-                    $Properties = @{Computername   = $Computer
-                                    Time           = $Event.TimeCreated
-                                    Username       = $Event.Properties.value[0]
-                                    CallerComputer = $Event.Properties.value[1]
-                                    }
-                    $Object += New-Object -TypeName PSObject -Property $Properties | Select ComputerName, Username, Time, CallerComputer
-                }
- 
+                $ComputerName = (Get-ADDomainController -Filter *).Name
             } catch {
-                $ErrorMessage = $Computer + " Error: " + $_.Exception.Message
-                    
-            } finally {
-                if ($Username) {
-                        Write-Output $Object | Where-Object {$_.Username -eq $Username}
-                    } else {
-                        Write-Output $Object
-                }
-                $Object = $null
+                Write-Error "Could not retrieve Domain Controllers. Ensure ActiveDirectory module is loaded."
+                return
             }
- 
         }
-             
-    }      
- 
- 
+
+        $StartTime = (Get-Date).AddDays(-$DaysFromToday)
+        
+        # Build the Filter Hashtable once
+        $Filter = @{
+            LogName   = 'Security'
+            ID        = 4740
+            StartTime = $StartTime
+        }
+        
+        # Optimization: If username is provided, filter at the source
+        if ($Username) { $Filter.Data = $Username }
+    }
+
+    PROCESS {
+        foreach ($Computer in $ComputerName) {
+            try {
+                $Events = Get-WinEvent -ComputerName $Computer -FilterHashtable $Filter -ErrorAction Stop
+                
+                foreach ($Event in $Events) {
+                    # Create custom object and output immediately to the pipeline
+                    [PSCustomObject]@{
+                        Time           = $Event.TimeCreated
+                        Username       = $Event.Properties[0].Value
+                        CallerComputer = $Event.Properties[1].Value
+                        DomainController = $Computer
+                    }
+                }
+            } catch [System.Exception] {
+                if ($_.Exception.Message -like "*No events were found*") {
+                    Write-Verbose "No lockout events found on $Computer"
+                } else {
+                    Write-Warning "Failed to query $Computer : $($_.Exception.Message)"
+                }
+            }
+        }
+    }
+
     END {}
- 
 }
