@@ -1,249 +1,125 @@
-# Requires the Active Directory module for PowerShell
-# If not already imported, you might need to run: Import-Module ActiveDirectory
+<#
+.SYNOPSIS
+    Discovery of local administrators across domain servers using parallel processing.
+    
+.DESCRIPTION
+    1. Enumerates all Windows Servers from Active Directory.
+    2. Uses Invoke-Command with a custom ThrottleLimit to query servers in parallel.
+    3. Identifies local users and Active Directory groups in the local 'Administrators' group.
+    4. Recursively expands AD groups to list individual members.
+    5. Exports a comprehensive CSV report.
+
+.NOTES
+    Author: Gemini Optimized
+    Version: 2.0
+#>
+
+# --- Configuration ---
+$ConcurrencyLimit = 50           # Number of servers to query simultaneously
+$ExportFolder     = "C:\temp"    # Where the results will be saved
+$Timestamp        = Get-Date -Format 'yyyyMMdd_HHmmss'
+$ReportPath       = Join-Path $ExportFolder "LocalAdminsReport_$Timestamp.csv"
+$ServerListPath   = Join-Path $ExportFolder "ServerList_$Timestamp.txt"
 
 try {
-    Write-Host "Starting server enumeration and local administrator discovery..."
+    # Ensure Export Directory Exists
+    if (-not (Test-Path $ExportFolder)) { New-Item -ItemType Directory -Path $ExportFolder | Out-Null }
 
-    # Define output paths to the script's current directory
-    $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-    $currentScriptDir = (Get-Location).Path # Get the directory where the script is run from
-    $serverListPath = Join-Path $currentScriptDir "ServerHostnames_$timestamp.txt"
-    $localAdminsReportPath = Join-Path $currentScriptDir "LocalAdministratorsReport_$timestamp.csv"
+    Write-Host "--- Starting Parallel Admin Audit (Throttle: $ConcurrencyLimit) ---" -ForegroundColor Cyan
 
-    # Initialize counters and lists
-    $serverCount = 0
-    $serversToProcess = @()
-    $localAdminResults = @() # To store all results for CSV export
-
-    # 1. Get the SID of the "Domain Controllers" group first
-    Write-Host "Retrieving SID for 'Domain Controllers' group..."
-    $domainControllersGroupSID = (Get-ADGroup -Identity "Domain Controllers" -Properties SID).SID.Value
-    if (-not $domainControllersGroupSID) {
-        Write-Warning "Could not find 'Domain Controllers' group or retrieve its SID. Domain controllers might not be included."
+    # 1. Enumerate Servers from Active Directory
+    Write-Host "[1/4] Querying Active Directory for Server list..." -NoNewline
+    $dcGroupSID = (Get-ADGroup -Identity "Domain Controllers").SID.Value
+    $adFilter = "OperatingSystem -like '*Server*' -or PrimaryGroupID -eq '$dcGroupSID'"
+    
+    $servers = Get-ADComputer -Filter $adFilter | Select-Object -ExpandProperty Name | Sort-Object
+    
+    if ($null -eq $servers) { 
+        Write-Error "No servers found in Active Directory. Exiting."
+        return 
     }
+    Write-Host " Done. ($($servers.Count) servers found)" -ForegroundColor Green
+    $servers | Out-File -FilePath $ServerListPath
 
-    # 2. Construct the filter string dynamically
-    $filterString = "OperatingSystem -like '*Server*'"
-    if ($domainControllersGroupSID) {
-        $filterString += " -or PrimaryGroupID -eq '$domainControllersGroupSID'"
-    }
-
-    Write-Host "Enumerating servers from Active Directory..."
-    Get-ADComputer -Filter $filterString -Properties Name, OperatingSystem |
-    Where-Object { $_.Name } | # Ensure the Name property exists and is not null
-    Sort-Object Name | # Sorts the objects by Name before outputting
-    ForEach-Object {
-        $hostname = $_.Name
-        Write-Host "  Found server: $hostname"
-        $hostname | Out-File -FilePath $serverListPath -Append # Append to file
-        $serversToProcess += $hostname # Add to list for later processing
-        $serverCount++
-    }
-
-    Write-Host "`nFinished enumerating servers. Total servers found: $serverCount."
-    Write-Host "Server list saved to: $serverListPath"
-
-    if ($serverCount -eq 0) {
-        Write-Warning "No servers found to process for local administrators. Exiting."
-        exit
-    }
-
-    Write-Host "`nStarting local administrator enumeration for $serverCount servers..."
-
-    foreach ($server in $serversToProcess) {
-        Write-Host "`n--- Processing server: $($server) ---"
+    # 2. Parallel Query via Invoke-Command
+    Write-Host "[2/4] Querying local 'Administrators' groups in parallel..."
+    $results = Invoke-Command -ComputerName $servers -ThrottleLimit $ConcurrencyLimit -ErrorAction SilentlyContinue -ScriptBlock {
         try {
-            # Test connection first (optional, but good for skipping unreachable hosts quickly)
-            if (-not (Test-Connection -ComputerName $server -Count 1 -Quiet -ErrorAction SilentlyContinue)) {
-                Write-Warning "  Server '$($server)' is unreachable via ping. Skipping local admin check."
-                $localAdminResults += [PSCustomObject]@{
-                    ComputerName        = $server
-                    SAMAccountName      = "N/A"
-                    DisplayName         = "N/A"
-                    MemberType          = "N/A"
-                    PrincipalSource     = "N/A"
-                    ParentADGroup       = "N/A"
-                    Status              = "Unreachable"
-                    ErrorMessage        = "Server ping failed"
-                }
-                continue
-            }
-
-            # Use Invoke-Command to run Get-LocalGroupMember remotely
-            $localAdmins = Invoke-Command -ComputerName $server -ScriptBlock {
-                try {
-                    Get-LocalGroupMember -Group "Administrators"
-                }
-                catch {
-                    throw "$($_.Exception.Message)"
-                }
-            } -ErrorAction Stop
-
-            if ($localAdmins) {
-                Write-Host "  Local Administrators on $($server):"
-                foreach ($admin in $localAdmins) {
-                    # Initialize default values for AD-specific properties
-                    $memberSamAccountName = "N/A"
-                    $memberDisplayName = "N/A"
-                    $memberType = $admin.ObjectClass
-                    $principalSource = $admin.PrincipalSource
-                    $parentADGroupName = "N/A"
-
-                    # Add directly if it's a user or a local group
-                    if ($admin.ObjectClass -eq 'User' -or $admin.PrincipalSource -eq 'Local') {
-                        # For local users/groups, SAMAccountName and DisplayName might just be their Name
-                        $memberSamAccountName = $admin.Name
-                        $memberDisplayName = $admin.Name # Or populate as needed if local objects have a different DisplayName
-                        Write-Host "    - $($admin.Name) (Type: $($memberType), Source: $($principalSource))"
-
-                        $localAdminResults += [PSCustomObject]@{
-                            ComputerName        = $server
-                            SAMAccountName      = $memberSamAccountName
-                            DisplayName         = $memberDisplayName
-                            MemberType          = $memberType
-                            PrincipalSource     = $principalSource
-                            ParentADGroup       = $parentADGroupName
-                            Status              = "Success"
-                            ErrorMessage        = ""
-                        }
-                    }
-                    # If it's an AD Group, enumerate its members
-                    elseif ($admin.ObjectClass -eq 'Group' -and $admin.PrincipalSource -eq 'ActiveDirectory') {
-                        $adGroupNameOnly = ($admin.Name -split '\\')[-1]
-                        $parentADGroupName = $admin.Name # Store the original full name for the report
-
-                        Write-Host "    - $($admin.Name) (Type: $($memberType), Source: $($principalSource)) -- Enumerating members of '$($adGroupNameOnly)'..."
-                        try {
-                            # Get members of the AD group, recursively for nested groups
-                            # Pipe to Get-ADObject to get SAMAccountName and DisplayName
-                            $adGroupMembers = Get-ADGroupMember -Identity $adGroupNameOnly -Recursive -ErrorAction Stop | Select-Object -ExpandProperty DistinguishedName | ForEach-Object {
-                                # Determine object class and fetch appropriate AD object
-                                # This ensures we get the right properties for users, groups, and computers
-                                $adObject = $null
-                                $objError = ""
-                                try {
-                                    $adObject = Get-ADObject -Identity $_ -Properties samAccountName, DisplayName, objectClass -ErrorAction Stop
-                                } catch {
-                                    $objError = $_.Exception.Message
-                                    # Fallback if Get-ADObject fails for a specific member
-                                    # Attempt to extract SAMAccountName from DN if available
-                                    $fallbackSam = ""
-                                    if ($_ -match 'CN=([^,]+)') {
-                                        $fallbackSam = $matches[1]
-                                    }
-                                    return [PSCustomObject]@{
-                                        SAMAccountName = $fallbackSam;
-                                        DisplayName = $fallbackSam;
-                                        ObjectClass = 'Unknown';
-                                        ErrorDetail = $objError
-                                    }
-                                }
-
-                                # Ensure properties exist or set to N/A
-                                $sam = $adObject.SAMAccountName
-                                $display = $adObject.DisplayName
-                                $objClass = $adObject.ObjectClass
-
-                                # If DisplayName is empty for a user, use their Name
-                                if ($objClass -eq 'user' -and [string]::IsNullOrWhiteSpace($display)) {
-                                    $display = $adObject.Name
-                                }
-                                # If DisplayName is empty for a group/computer, use SAMAccountName
-                                elseif ([string]::IsNullOrWhiteSpace($display)) {
-                                    $display = $sam
-                                }
-
-                                [PSCustomObject]@{
-                                    SAMAccountName = $sam;
-                                    DisplayName = $display;
-                                    ObjectClass = $objClass;
-                                    ErrorDetail = $objError
-                                }
-                            }
-
-                            if ($adGroupMembers) {
-                                foreach ($member in $adGroupMembers) {
-                                    Write-Host "      --> $($member.DisplayName) (SAM: $($member.SAMAccountName), Type: $($member.ObjectClass))"
-                                    $localAdminResults += [PSCustomObject]@{
-                                        ComputerName        = $server
-                                        SAMAccountName      = $member.SAMAccountName
-                                        DisplayName         = $member.DisplayName
-                                        MemberType          = $member.ObjectClass
-                                        PrincipalSource     = "ActiveDirectory"
-                                        ParentADGroup       = $parentADGroupName
-                                        Status              = "Success"
-                                        ErrorMessage        = $member.ErrorDetail
-                                    }
-                                }
-                            } else {
-                                Write-Warning "      No members found for AD group '$($admin.Name)'."
-                                $localAdminResults += [PSCustomObject]@{
-                                    ComputerName        = $server
-                                    SAMAccountName      = "N/A"
-                                    DisplayName         = "N/A"
-                                    MemberType          = $admin.ObjectClass
-                                    PrincipalSource     = $admin.PrincipalSource
-                                    ParentADGroup       = $parentADGroupName
-                                    Status              = "Success (No Members)"
-                                    ErrorMessage        = "AD Group has no members"
-                                }
-                            }
-                        }
-                        catch {
-                            # Capture the error specific to this AD group lookup
-                            Write-Error "      Error enumerating members for AD group '$($admin.Name)': $($_.Exception.Message)"
-                            $localAdminResults += [PSCustomObject]@{
-                                ComputerName        = $server
-                                SAMAccountName      = "N/A"
-                                DisplayName         = "N/A"
-                                MemberType          = $admin.ObjectClass
-                                PrincipalSource     = $admin.PrincipalSource
-                                ParentADGroup       = $parentADGroupName
-                                Status              = "Failed (AD Group Members)"
-                                ErrorMessage        = "$($_.Exception.Message)"
-                            }
-                        }
-                    }
-                }
-            } else {
-                Write-Warning "  No members found in the local Administrators group on $($server) (or access denied or group is empty)."
-                 $localAdminResults += [PSCustomObject]@{
-                    ComputerName        = $server
-                    SAMAccountName      = "N/A"
-                    DisplayName         = "N/A"
-                    MemberType          = "N/A"
-                    PrincipalSource     = "N/A"
-                    ParentADGroup       = "N/A"
-                    Status              = "No Members Found/Access Denied"
-                    ErrorMessage        = "Could not retrieve members or group is empty"
+            # Query the local group
+            $members = Get-LocalGroupMember -Group "Administrators" -ErrorAction Stop
+            foreach ($m in $members) {
+                [PSCustomObject]@{
+                    ComputerName    = $env:COMPUTERNAME
+                    MemberName      = $m.Name
+                    MemberType      = $m.ObjectClass
+                    PrincipalSource = $m.PrincipalSource
+                    Status          = "Success"
+                    ErrorDetail     = ""
                 }
             }
-        }
-        catch {
-            $errorMessage = $_.Exception.Message
-            Write-Error "  Failed to enumerate local administrators on $($server): $($errorMessage)"
-            $localAdminResults += [PSCustomObject]@{
-                ComputerName        = $server
-                SAMAccountName      = "N/A"
-                DisplayName         = "N/A"
-                MemberType          = "N/A"
-                PrincipalSource     = "N/A"
-                ParentADGroup       = "N/A"
-                Status              = "Failed"
-                ErrorMessage        = $errorMessage
+        } catch {
+            [PSCustomObject]@{
+                ComputerName    = $env:COMPUTERNAME
+                MemberName      = "N/A"
+                MemberType      = "N/A"
+                PrincipalSource = "N/A"
+                Status          = "Connection Failed"
+                ErrorDetail     = $_.Exception.Message
             }
         }
     }
 
-    Write-Host "`n--- Local Administrator Enumeration Complete ---"
-    Write-Host "Total servers processed: $($serversToProcess.Count)"
-    Write-Host "Detailed report saved to: $localAdminsReportPath"
+    # 3. Post-Processing: Recursive AD Group Expansion
+    Write-Host "[3/4] Processing results and expanding AD Groups..."
+    $finalReport = foreach ($entry in $results) {
+        # If the member is an AD Group, expand it locally to avoid multiple remote hops
+        if ($entry.MemberType -eq 'Group' -and $entry.PrincipalSource -eq 'ActiveDirectory') {
+            try {
+                $groupName = ($entry.MemberName -split '\\')[-1]
+                $adMembers = Get-ADGroupMember -Identity $groupName -Recursive -ErrorAction Stop
+                
+                foreach ($user in $adMembers) {
+                    [PSCustomObject]@{
+                        ComputerName    = $entry.ComputerName
+                        SAMAccountName  = $user.samAccountName
+                        DisplayName     = $user.name
+                        MemberType      = $user.objectClass
+                        PrincipalSource = "ActiveDirectory"
+                        ParentADGroup   = $entry.MemberName
+                        Status          = "Success"
+                        ErrorMessage    = ""
+                    }
+                }
+            } catch {
+                # Fallback if group expansion fails (e.g., group not found or permissions)
+                $entry | Select-Object ComputerName, 
+                    @{N="SAMAccountName";E={"N/A"}}, 
+                    @{N="DisplayName";E={"N/A"}}, 
+                    MemberType, PrincipalSource, 
+                    @{N="ParentADGroup";E={$entry.MemberName}}, 
+                    @{N="Status";E={"Expansion Failed"}}, 
+                    @{N="ErrorMessage";E={$_.Exception.Message}}
+            }
+        } else {
+            # It's a local user or a single AD user added directly
+            $entry | Select-Object ComputerName, 
+                @{N="SAMAccountName";E={$entry.MemberName}}, 
+                @{N="DisplayName";E={$entry.MemberName}}, 
+                MemberType, PrincipalSource, 
+                @{N="ParentADGroup";E={"N/A"}}, 
+                Status, 
+                @{N="ErrorMessage";E={$entry.ErrorDetail}}
+        }
+    }
 
-    # Export all results to CSV - APPLYING COLUMN ORDER HERE
-    $localAdminResults | Select-Object ComputerName, SAMAccountName, DisplayName, MemberType, PrincipalSource, ParentADGroup, Status, ErrorMessage | Export-Csv -Path $localAdminsReportPath -NoTypeInformation -Encoding UTF8
+    # 4. Final Export
+    Write-Host "[4/4] Exporting final report to CSV..."
+    $finalReport | Export-Csv -Path $ReportPath -NoTypeInformation -Encoding UTF8
+    
+    Write-Host "`nAudit Complete!" -ForegroundColor Green
+    Write-Host "Report: $ReportPath"
+    Write-Host "Server List: $ServerListPath"
 
-}
-catch {
-    Write-Error "A critical error occurred during script execution: $($_.Exception.Message)"
-    Write-Error "Please ensure the Active Directory module is installed, PowerShell Remoting is enabled on target servers, and you have appropriate permissions."
+} catch {
+    Write-Error "A critical error occurred: $($_.Exception.Message)"
 }
