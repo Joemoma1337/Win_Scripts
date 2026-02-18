@@ -1,33 +1,61 @@
-# Define the path to your file containing SAM account names (one per line)
-$userFile = "C:\temp\users.txt"
+# Import AD Module
+if (!(Get-Module -ListAvailable ActiveDirectory)) {
+    Write-Error "The ActiveDirectory module is required. Please install RSAT."
+    return
+}
 
-# Define the character set for the unique password
-$chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-_()=+"
+# Configuration
+$alphaPool = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+$fullPool  = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890=-+_@#"
+$totalLength = 30
+$inputFile = "SAM_Input.txt"
+$outputFile = "Password_Reset_Results.csv"
 
-# Check if the file exists before proceeding
-if (Test-Path $userFile) {
-    $samAccounts = Get-Content $userFile
+# Array to store results for CSV export
+$results = @()
 
-    foreach ($user in $samAccounts) {
-        # Generate a unique 32-character password
-        $newPassword = -join ((1..32) | ForEach-Object { $chars[(Get-Random -Maximum $chars.Length)] })
+if (-not (Test-Path $inputFile)) {
+    Write-Error "Input file $inputFile not found."
+    return
+}
 
-        try {
-            # FOR ACTIVE DIRECTORY ACCOUNTS:
-            Set-ADAccountPassword -Identity $user -NewPassword (ConvertTo-SecureString $newPassword -AsPlainText -Force) -ErrorAction Stop
-            
-            # FOR LOCAL ACCOUNTS (Uncomment the line below and comment out the AD line above):
-            # $localUser = Get-LocalUser -Name $user
-            # $localUser | Set-LocalUser -Password (ConvertTo-SecureString $newPassword -AsPlainText -Force)
+$users = Get-Content $inputFile
 
-            Write-Host "Successfully reset password for: $user" -ForegroundColor Green
-            Write-Host "New Password: $newPassword"
-        }
-        catch {
-            Write-Warning "Failed to reset password for $user. Reason: $($_.Exception.Message)"
-        }
+foreach ($user in $users) {
+    $samAccount = $user.Trim()
+    if ([string]::IsNullOrWhiteSpace($samAccount)) { continue }
+
+    try {
+        # 1. Generate password (starts with letter)
+        $firstChar = $alphaPool[(Get-Random -Maximum $alphaPool.Length)]
+        $remainingChars = -join ((1..($totalLength - 1)) | ForEach-Object { $fullPool[(Get-Random -Maximum $fullPool.Length)] })
+        $newPassword = $firstChar + $remainingChars
+        
+        # 2. Apply to Active Directory
+        $securePassword = ConvertTo-SecureString $newPassword -AsPlainText -Force
+        Set-ADAccountPassword -Identity $samAccount -NewPassword $securePassword -Reset
+        #Set-ADUser -Identity $samAccount -ChangePasswordAtLogon $true
+        
+        $status = "Success"
+        Write-Host "Reset successful: $samAccount" -ForegroundColor Green
+        #Write-Host "Reset successful: $samAccount : $newPassword" -ForegroundColor Green
+    }
+    catch {
+        $status = "Failed: $($_.Exception.Message)"
+        $newPassword = "N/A"
+        Write-Warning "Reset failed: $samAccount"
+    }
+
+    # 3. Create an object for the audit report
+    $results += [PSCustomObject]@{
+        Timestamp    = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+        SAMAccount   = $samAccount
+        Action = "Password Reset"
+        #NewPassword  = $newPassword
+        Status       = $status
     }
 }
-else {
-    Write-Error "The file $userFile was not found."
-}
+
+# 4. Export the collection to CSV
+$results | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
+Write-Host "`nAudit report generated: $outputFile" -ForegroundColor Cyan
