@@ -1,7 +1,7 @@
 # --- CONFIGURATION ---
 $action   = "Enable" # Set this to "Enable", "Disable", or "Unlock"
 $filePath = "C:\Users\Administrator\Downloads\Users\users.txt"
-$logFile  = "C:\Users\Administrator\Downloads\Users\account_actions.log"
+$csvLog   = "C:\Users\Administrator\Downloads\Users\account_actions_audit.csv"
 # ---------------------
 
 if (-not (Test-Path $filePath)) {
@@ -9,9 +9,14 @@ if (-not (Test-Path $filePath)) {
     return
 }
 
-$userList = Get-Content $filePath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+if (!(Get-Module -ListAvailable ActiveDirectory)) { 
+    Write-Error "The ActiveDirectory module is required."
+    return 
+}
 
-# Helper function to print colored status words to console
+$userList = Get-Content $filePath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+$report = @()
+
 function Write-ColoredStatus {
     param($status)
     $color = "White"
@@ -22,10 +27,17 @@ function Write-ColoredStatus {
 
 foreach ($samAccount in $userList) {
     $samAccount = $samAccount.Trim()
+    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    
+    # Initialize variables
+    $displayName = "Not Found"
+    $initialEnabled = $initialLocked = $finalEnabled = $finalLocked = "Unknown"
+    $statusResult = "Success"
 
     try {
-        # 1. Get Initial Status
-        $user = Get-ADUser -Identity $samAccount -Properties Enabled, LockedOut -ErrorAction Stop
+        # 1. Get Initial Status (Added DisplayName to properties)
+        $user = Get-ADUser -Identity $samAccount -Properties Enabled, LockedOut, DisplayName -ErrorAction Stop
+        $displayName    = $user.DisplayName
         $initialEnabled = if ($user.Enabled) { "Enabled" } else { "Disabled" }
         $initialLocked  = if ($user.LockedOut) { "Locked" } else { "Unlocked" }
         
@@ -48,27 +60,32 @@ foreach ($samAccount in $userList) {
         $finalEnabled = if ($updatedUser.Enabled) { "Enabled" } else { "Disabled" }
         $finalLocked  = if ($updatedUser.LockedOut) { "Locked" } else { "Unlocked" }
 
-        # 4. Report Results
-        $timestamp = Get-Date -Format 'HH:mm:ss'
-        
-        # Write to Terminal with inline colors
-        Write-Host "$timestamp : SUCCESS : User '$samAccount' | Action: $action | Before: (" -NoNewline
-        Write-ColoredStatus $initialEnabled
-        Write-Host " | " -NoNewline
-        Write-ColoredStatus $initialLocked
+        # 4. Console Feedback
+        Write-Host "$timestamp : SUCCESS : '$displayName' ($samAccount) | Before: (" -NoNewline
+        Write-ColoredStatus $initialEnabled; Write-Host " | " -NoNewline; Write-ColoredStatus $initialLocked
         Write-Host ") | After: (" -NoNewline
-        Write-ColoredStatus $finalEnabled
-        Write-Host " | " -NoNewline
-        Write-ColoredStatus $finalLocked
+        Write-ColoredStatus $finalEnabled; Write-Host " | " -NoNewline; Write-ColoredStatus $finalLocked
         Write-Host ")"
-
-        # Write to Log File (Plain text)
-        $logMsg = "$timestamp : SUCCESS : User '$samAccount' | Action: $action | Before: ($initialEnabled | $initialLocked) | After: ($finalEnabled | $finalLocked)"
-        $logMsg | Out-File -FilePath $logFile -Append
     }
     catch {
-        $errorMsg = "$(Get-Date -Format 'HH:mm:ss') : ERROR   : User '$samAccount' - $($_.Exception.Message)"
-        Write-Host $errorMsg -ForegroundColor Red
-        $errorMsg | Out-File -FilePath $logFile -Append
+        $statusResult = "Error: $($_.Exception.Message)"
+        Write-Host "$timestamp : ERROR   : '$samAccount' - $($_.Exception.Message)" -ForegroundColor Red
+    }
+
+    # 5. Build the Object for CSV
+    $report += [PSCustomObject]@{
+        Time            = $timestamp
+        DisplayName     = $displayName
+        SAMAccount      = $samAccount
+        ActionTargeted  = $action
+        Status          = $statusResult
+        Before_Enabled  = $initialEnabled
+        Before_Locked   = $initialLocked
+        After_Enabled   = $finalEnabled
+        After_Locked    = $finalLocked
     }
 }
+
+# 6. Export to CSV
+$report | Export-Csv -Path $csvLog -NoTypeInformation -Append -Encoding UTF8
+Write-Host "`nAudit CSV updated at: $csvLog" -ForegroundColor Cyan
