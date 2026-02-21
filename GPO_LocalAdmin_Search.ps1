@@ -23,7 +23,7 @@ foreach ($g in $gpoList) {
                 
                 if ($gName -like "*Administrators*" -or $n.GroupName.SID -eq "S-1-5-32-544") {
                     
-                    # 1. Expand Users
+                    # 1. Expand Users and Track Source
                     $rawMembers = @($n.Member.Name.'#text')
                     $resolvedUsers = foreach ($member in $rawMembers) {
                         $samName = if ($member -like "*\*") { $member.Split('\')[-1] } else { $member }
@@ -33,29 +33,36 @@ foreach ($g in $gpoList) {
                                 # If not a user, check if it's a group
                                 $groupObj = Get-ADGroup -Filter "SamAccountName -eq '$samName'" -ErrorAction SilentlyContinue
                                 if ($groupObj) {
-                                    Get-ADGroupMember -Identity $groupObj.DistinguishedName -Recursive | Select-Object -ExpandProperty SamAccountName
-                                } else { $member }
-                            } else { $member }
-                        } catch { $member }
+                                    # Get members and attach the source group name to each
+                                    Get-ADGroupMember -Identity $groupObj.DistinguishedName -Recursive | Select-Object SamAccountName, @{Name="SourceGroup"; Expression={$groupObj.Name}}
+                                } else { 
+                                    [PSCustomObject]@{ SamAccountName = $member; SourceGroup = "Direct Member" }
+                                }
+                            } else { 
+                                [PSCustomObject]@{ SamAccountName = $member; SourceGroup = "Direct Member" }
+                            }
+                        } catch { 
+                            [PSCustomObject]@{ SamAccountName = $member; SourceGroup = "Unknown/Error" }
+                        }
                     }
 
                     # 2. Find Linked Containers by GPO GUID
-                    # We search AD for any object that has this GPO's GUID in its gPLink attribute
                     $gpoGuid = $g.Id.ToString()
                     $containers = Get-ADObject -Filter "gPLink -like '*$gpoGuid*'" -Properties gPLink, DistinguishedName
                     
                     $computersFound = foreach ($container in $containers) {
-                        # Get all enabled computers in this OU or Container
                         Get-ADComputer -Filter 'Enabled -eq $true' -SearchBase $container.DistinguishedName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
                     }
 
                     # 3. Build Results
-                    foreach ($user in ($resolvedUsers | Select-Object -Unique)) {
+                    # We use -Unique on SamAccountName to keep the list clean
+                    foreach ($userData in ($resolvedUsers | Sort-Object SamAccountName -Unique)) {
                         foreach ($comp in ($computersFound | Select-Object -Unique)) {
                             $finalAudit += [PSCustomObject]@{
                                 GPOName         = $g.DisplayName
                                 RestrictedGroup = $gName
-                                ResolvedUser    = $user
+                                ResolvedUser    = $userData.SamAccountName
+                                UserSourceGroup = $userData.SourceGroup
                                 TargetComputer  = $comp
                                 LinkedOU        = $containers.DistinguishedName -join " | "
                             }
@@ -72,5 +79,5 @@ if ($finalAudit) {
     $finalAudit | Format-Table -AutoSize
     Write-Host "Success! Check your desktop for the CSV." -ForegroundColor Green
 } else {
-    Write-Host "Still no mappings found. Ensure the GPO is actually LINKED to an OU and not just sitting in 'Group Policy Objects'." -ForegroundColor Yellow
+    Write-Host "Still no mappings found." -ForegroundColor Yellow
 }
